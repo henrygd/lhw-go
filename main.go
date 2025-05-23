@@ -1,66 +1,108 @@
 package main
 
 import (
-	"bytes"
-	_ "embed"
+	"bufio"
+	"embed"
 	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
+	"time"
 )
-
-//go:embed read-temps.ps1
-var psScript []byte
-
-//go:embed LibreHardwareMonitorLib.dll
-var dllBytes []byte
 
 type SensorReading struct {
 	Name  string  `json:"name"`
 	Value float64 `json:"value"`
 }
 
+//go:embed all:bin/Release/net48
+var libreReaderFs embed.FS
+
 func main() {
-	// if !isElevated() {
-	// 	return
-	// }
+	tempDir := os.TempDir()
+	destDir := filepath.Join(tempDir, "get_temps")
 
-	scriptPath := writeTempFile("read_temp.ps1", psScript)
-	dllPath := writeTempFile("LibreHardwareMonitorLib.dll", dllBytes)
-	defer os.Remove(scriptPath)
-	defer os.Remove(dllPath)
-
-	// Run PowerShell script with its working directory set to DLL location
-	cmd := exec.Command("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath)
-	cmd.Dir = filepath.Dir(dllPath)
-
-	var out, stderr bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &stderr
-
-	err := cmd.Run()
+	err := copyEmbeddedDir(libreReaderFs, "bin/Release/net48", destDir)
 	if err != nil {
-		log.Fatalf("Script error: %v\n%s", err, stderr.String())
+		log.Fatalf("Failed to copy embedded directory: %v", err)
 	}
 
-	var readings []SensorReading
-	err = json.Unmarshal(out.Bytes(), &readings)
+	cmd := exec.Command(filepath.Join(destDir, "get_temps.exe"))
+	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		log.Fatalf("JSON parse error: %v\nOutput: %s", err, out.String())
+		log.Fatalf("Failed to get stdin: %v", err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		log.Fatalf("Failed to get stdout: %v", err)
 	}
 
-	for _, r := range readings {
-		fmt.Printf("%s: %.2f °C\n", r.Name, r.Value)
+	if err := cmd.Start(); err != nil {
+		log.Fatalf("Failed to start get_temps.exe: %v", err)
+	}
+
+	scanner := bufio.NewScanner(stdout)
+
+	for {
+		_, err = fmt.Fprintln(stdin, "getTemps")
+		if err != nil {
+			log.Fatalf("Failed to send command: %v", err)
+		}
+
+		if scanner.Scan() {
+			line := scanner.Text()
+			var readings []SensorReading
+			err := json.Unmarshal([]byte(line), &readings)
+			if err != nil {
+				log.Printf("Failed to parse JSON: %v\nGot: %s", err, line)
+				continue
+			}
+
+			log.Println(readings)
+
+		} else if err := scanner.Err(); err != nil {
+			log.Printf("Failed to read output: %v", err)
+			return
+		} else {
+			log.Printf("No output from get_temps.exe")
+			return
+		}
+		time.Sleep(time.Second)
 	}
 }
 
-func writeTempFile(name string, data []byte) string {
-	path := filepath.Join(os.TempDir(), name)
-	err := os.WriteFile(path, data, 0600)
+func copyEmbeddedDir(fs embed.FS, srcPath, destPath string) error {
+	entries, err := fs.ReadDir(srcPath)
 	if err != nil {
-		log.Fatalf("Failed to write temp file %s: %v", name, err)
+		return err
 	}
-	return path
+	if err := os.MkdirAll(destPath, 0755); err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		srcEntryPath := path.Join(srcPath, entry.Name())
+		destEntryPath := filepath.Join(destPath, entry.Name())
+
+		if entry.IsDir() {
+			if err := copyEmbeddedDir(fs, srcEntryPath, destEntryPath); err != nil {
+				return err
+			}
+			continue
+		}
+
+		data, err := fs.ReadFile(srcEntryPath)
+		if err != nil {
+			return err
+		}
+
+		if err := os.WriteFile(destEntryPath, data, 0755); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
