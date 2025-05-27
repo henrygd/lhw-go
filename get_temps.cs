@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using LibreHardwareMonitor.Hardware;
 
 class Program
@@ -40,13 +41,20 @@ class Program
               hw.Update();
               updated = true;
             }
-            // if sensor.Name starts with "Temperature" replace with hw.Name but retain the rest of the name.
+            var name = sensor.Name;
+            // if sensor.Name starts with "Temperature" replace with hw.Identifier but retain the rest of the name.
             // usually this is a number like Temperature 3
-            var name = sensor.Name.StartsWith("Temperature") ? hw.Name.Split(' ')[0] + sensor.Name.Substring(11) : sensor.Name;
-            writer.WriteLine($"{name}|{sensor.Value.Value}");
+            if (sensor.Name.StartsWith("Temperature"))
+            {
+              name = hw.Identifier.ToString().Replace("/", "_").TrimStart('_') + sensor.Name.Substring(11);
+            }
+            // invariant culture assures the value is parsable as a float
+            var value = sensor.Value.Value.ToString("0.##", CultureInfo.InvariantCulture);
+            // write the name and value to the writer
+            writer.WriteLine($"{name}|{value}");
           }
         }
-        // Send empty line to signal end of sensor data
+        // send empty line to signal end of sensor data
         writer.WriteLine();
         writer.Flush();
       }

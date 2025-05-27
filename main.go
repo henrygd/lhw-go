@@ -19,10 +19,6 @@ type SensorReading struct {
 	Value float64
 }
 
-func (s SensorReading) String() string {
-	return fmt.Sprintf("{Name: %s, Value: %.2f}", s.Name, s.Value)
-}
-
 //go:embed all:bin/Release/net48
 var libreReaderFs embed.FS
 
