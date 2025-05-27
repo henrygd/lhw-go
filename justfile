@@ -5,6 +5,7 @@ build: build-dotnet build-go
 
 # build the dotnet project to interact directly with lhw
 build-dotnet:
+	rm -rf ./bin
 	dotnet build -c Release
 
 # build the final windows go executable 

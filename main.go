@@ -3,19 +3,24 @@ package main
 import (
 	"bufio"
 	"embed"
-	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"path"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 )
 
 type SensorReading struct {
-	Name  string  `json:"name"`
-	Value float64 `json:"value"`
+	Name  string
+	Value float64
+}
+
+func (s SensorReading) String() string {
+	return fmt.Sprintf("{Name: %s, Value: %.2f}", s.Name, s.Value)
 }
 
 //go:embed all:bin/Release/net48
@@ -52,24 +57,47 @@ func main() {
 			log.Fatalf("Failed to send command: %v", err)
 		}
 
-		if scanner.Scan() {
-			line := scanner.Text()
-			var readings []SensorReading
-			err := json.Unmarshal([]byte(line), &readings)
-			if err != nil {
-				log.Printf("Failed to parse JSON: %v\nGot: %s", err, line)
+		var readings []SensorReading
+
+		// Read all sensor lines until we hit an empty line or EOF
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if line == "" {
+				break // Empty line indicates end of sensor data
+			}
+
+			parts := strings.Split(line, "|")
+			if len(parts) != 2 {
+				log.Printf("Invalid sensor line format: %s", line)
 				continue
 			}
 
-			log.Println(readings)
+			name := strings.TrimSpace(parts[0])
+			valueStr := strings.TrimSpace(parts[1])
 
-		} else if err := scanner.Err(); err != nil {
+			value, err := strconv.ParseFloat(valueStr, 64)
+			if err != nil {
+				log.Printf("Failed to parse temperature value '%s': %v", valueStr, err)
+				continue
+			}
+
+			readings = append(readings, SensorReading{
+				Name:  name,
+				Value: value,
+			})
+		}
+
+		if err := scanner.Err(); err != nil {
 			log.Printf("Failed to read output: %v", err)
 			return
-		} else {
-			log.Printf("No output from get_temps.exe")
-			return
 		}
+
+		if len(readings) > 0 {
+			log.Println(readings)
+		} else {
+			log.Printf("No sensor readings received")
+		}
+
 		time.Sleep(time.Second)
 	}
 }

@@ -1,13 +1,5 @@
 using System;
-using System.Collections.Generic;
-using Newtonsoft.Json;
 using LibreHardwareMonitor.Hardware;
-
-class SensorReading
-{
-  public string Name { get; set; }
-  public float Value { get; set; }
-}
 
 class Program
 {
@@ -20,8 +12,8 @@ class Program
       IsMemoryEnabled = true,
       IsMotherboardEnabled = true,
       IsStorageEnabled = true,
-      IsPsuEnabled = true,
-      IsNetworkEnabled = true,
+      // IsPsuEnabled = true,
+      // IsNetworkEnabled = true,
     };
     computer.Open();
 
@@ -33,30 +25,29 @@ class Program
     {
       if (line.Trim().Equals("getTemps", StringComparison.OrdinalIgnoreCase))
       {
-        var result = new List<SensorReading>();
         foreach (var hw in computer.Hardware)
         {
           var updated = false;
           foreach (var sensor in hw.Sensors)
           {
-            if (sensor.SensorType == SensorType.Temperature && sensor.Value.HasValue)
+            var validTemp = sensor.SensorType == SensorType.Temperature && sensor.Value.HasValue;
+            if (!validTemp || sensor.Name.Contains("Distance"))
             {
-              if (!updated)
-              {
-                hw.Update();
-                updated = true;
-              }
-              result.Add(new SensorReading
-              {
-                Name = sensor.Name,
-                Value = sensor.Value.Value
-              });
+              continue;
             }
+            if (!updated)
+            {
+              hw.Update();
+              updated = true;
+            }
+            // if sensor.Name starts with "Temperature" replace with hw.Name but retain the rest of the name.
+            // usually this is a number like Temperature 3
+            var name = sensor.Name.StartsWith("Temperature") ? hw.Name.Split(' ')[0] + sensor.Name.Substring(11) : sensor.Name;
+            writer.WriteLine($"{name}|{sensor.Value.Value}");
           }
         }
-
-        var json = JsonConvert.SerializeObject(result);
-        writer.WriteLine(json);
+        // Send empty line to signal end of sensor data
+        writer.WriteLine();
         writer.Flush();
       }
     }
