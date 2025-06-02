@@ -28,30 +28,13 @@ class Program
       {
         foreach (var hw in computer.Hardware)
         {
-          var updated = false;
-          foreach (var sensor in hw.Sensors)
+          // process main hardware sensors
+          ProcessSensors(hw, writer);
+
+          // process subhardware sensors
+          foreach (var subhardware in hw.SubHardware)
           {
-            var validTemp = sensor.SensorType == SensorType.Temperature && sensor.Value.HasValue;
-            if (!validTemp || sensor.Name.Contains("Distance"))
-            {
-              continue;
-            }
-            if (!updated)
-            {
-              hw.Update();
-              updated = true;
-            }
-            var name = sensor.Name;
-            // if sensor.Name starts with "Temperature" replace with hw.Identifier but retain the rest of the name.
-            // usually this is a number like Temperature 3
-            if (sensor.Name.StartsWith("Temperature"))
-            {
-              name = hw.Identifier.ToString().Replace("/", "_").TrimStart('_') + sensor.Name.Substring(11);
-            }
-            // invariant culture assures the value is parsable as a float
-            var value = sensor.Value.Value.ToString("0.##", CultureInfo.InvariantCulture);
-            // write the name and value to the writer
-            writer.WriteLine($"{name}|{value}");
+            ProcessSensors(subhardware, writer);
           }
         }
         // send empty line to signal end of sensor data
@@ -61,5 +44,37 @@ class Program
     }
 
     computer.Close();
+  }
+
+  static void ProcessSensors(IHardware hardware, System.IO.TextWriter writer)
+  {
+    var updated = false;
+    foreach (var sensor in hardware.Sensors)
+    {
+      var validTemp = sensor.SensorType == SensorType.Temperature && sensor.Value.HasValue;
+      if (!validTemp || sensor.Name.Contains("Distance"))
+      {
+        continue;
+      }
+
+      if (!updated)
+      {
+        hardware.Update();
+        updated = true;
+      }
+
+      var name = sensor.Name;
+      // if sensor.Name starts with "Temperature" replace with hardware.Identifier but retain the rest of the name.
+      // usually this is a number like Temperature 3
+      if (sensor.Name.StartsWith("Temperature"))
+      {
+        name = hardware.Identifier.ToString().Replace("/", "_").TrimStart('_') + sensor.Name.Substring(11);
+      }
+
+      // invariant culture assures the value is parsable as a float
+      var value = sensor.Value.Value.ToString("0.##", CultureInfo.InvariantCulture);
+      // write the name and value to the writer
+      writer.WriteLine($"{name}|{value}");
+    }
   }
 }
